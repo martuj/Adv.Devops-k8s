@@ -1,129 +1,88 @@
-Kubernetes Essentials - 
+Kubernetes Essentials
+=============================================================
+Lab 1: Kubernetes Operations(kops) on AWS
+=============================================================
 
-Lab 1: Kubernetes Operations on AWS
-Task 1: Setting up a Kubernetes Cluster
-see PDF document 
+##Task 1: Launching an EC2 Instance
+#create an EC2 Instance
+Ubuntu Server22.04 LTS (HVM), SSD Volume type
+t2.micro
 
-Task 2: 
-Task: Create pod using kubectl command
+##Task 2: Create an IAM role
+#create an IAM role for your instance as kops-admin-role with AdministratorAccess policy
 
-kubectl run testpod --image=nginx:latest
-#list pods
-kubectl get pods
+##Now, attach the IAM kops-admin-role to your EC2 instance kops by following these steps:
+1. First select EC2 instance kops.
+2. Next click on Action > Security > Modify IAM role
+3. Search   for kops-admin role, select it and click Update IAM role
 
-#ssh/login to that pod
+##Task 3: Setting up a Kubernetes Cluster
 
-kubectl exec -it mypod -- bash 
-#to comeout of pod run exit command.
-exit
-# to Read pod's log
-kubectl logs mypod
-#Describe pod to see it's configuration
-kubectl describe pod mypod
+sudo hostnamectl set-hostname kops
 
-Pod Lifecycle
-•	Pending: Pod is registered in Kubernetes, but the container images are being created.
-•	Running: Pod has been defined on a node, all containers are created, and at least one of them is running.
-•	Succeeded: Containers in the pod have finished their task and have terminated successfully.
-•	Failed: At least one container in the Pod has failed, and all the containers have terminated.
-•	Unknown: Status of the Pod cannot be determined due to an error in communication.
+bash
 
+wget https://kops-script.s3.amazonaws.com/kops-v1.25.sh
 
-Task 2.1 Create pod using yaml file 
+. ./kops-v1.25.sh
 
-vi pod.yaml
+kops get cluster
 
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    app: myapp
-  name: multi-con-pod
-spec:
-  containers:
-  - name: con1   ### first container 
-    image: nginx:latest
-    ports:
-    - containerPort: 80
-
-kubectl apply -f pod.yaml
-kubectl get pod
-
-
-Task 3:
-# multiple container in pods 
-
-vi multi-container.yaml
-
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    app: myapp
-  name: multi-con-pod
-spec:
-  containers:
-  - name: con1   ### first container 
-    image: nginx:latest
-    ports:
-    - containerPort: 80
-  - name: con2    ## second container 
-    image: tomcat
-    ports:
-    - containerPort: 8080
-
-# to save file :wq
-
-create pod by using below command 
-kubectl create -f multi-container.yaml
-
-a. read logs of specific contaienr
- kubectl logs {pod-name} -c {container-name}
- kubectl logs multi-con-pod -c con2
-
-b. login into specific container
-kubectl exec -it {pod-name} -c {container-name} -- bash
-kubectl exec -it multi-con-pod -c con1 -- bash
-
-to out of container run exit command 
-
-
-Lab 2: Services in Kubernetes
-
-
-Task 1: Create a Pod using a YAML file
+kops validate cluster <cluster name>
 
 kubectl get nodes
-kubectl get nodes -o wide
+
+
+=============================================================
+Lab 2: Services in Kubernetes
+=============================================================
+---------------------------------------------------------------
+# Task 1 Create a pod using below yaml
+---------------------------------------------------------------
 
 vi httpd-pod.yaml
+
 
 apiVersion: v1
 kind: Pod
 metadata:
   name: httpd-pod
   labels:
-    app: myapp
+    env: prod 
+    type: front-end
+    app: httpd-ws
 spec:
   containers:
   - name: httpd-container
     image: httpd
     ports:
-      - containerPort: 80
+       - containerPort: 80
 
-# to save file use :wq!
 
+# Apply the pod definition yaml
 
 kubectl create -f httpd-pod.yaml
-kubectl get pods
-kubectl get pods -o wide
-kubectl get pod httpd-pod -o yaml
-kubectl describe pod httpd-pod 
-kubectl get pods --show-labels
 
-Task 2: Setup ClusterIP service
+
+# Check the newly created Pod
+
+kubectl get pods
+
+kubectl get pods -o wide
+
+# Describe Pod using below command
+
+kubectl describe pod httpd-pod
+
+
+----------------------------------------------------------------------
+#Task 2  Setup ClusterIP service
+----------------------------------------------------------------------
+
+# Create  a ClusterIP service using below YAML
 
 vi httpd-svc.yaml
+
 
 apiVersion: v1
 kind: Service
@@ -131,33 +90,46 @@ metadata:
   name: httpd-svc
 spec:
   selector:
-    app: myapp
+    env: prod
+    type: front-end
+    app: httpd-ws
   ports:
   - protocol: TCP
     port: 80
     targetPort: 80
   type: ClusterIP
 
-# to save :wq
+
+ #Apply above definition using below to create a ClusterIP service
 
 kubectl apply -f httpd-svc.yaml
-kubectl get services
+
+ # Describe the service and verify it has populated the endpoints with IP address matching Pod label
+
+kubectl get svc
+
 kubectl describe svc httpd-svc
-kubectl get ep 
-kubectl get svc httpd-svc
 
-Create a pod and login to that pod to execute curl command 
+  # Get EndPoint of the service
 
-kubectl run testpod --image=httpd:latest --port 80
-kubectl exec -it testpod -- bash
-apt update && apt install curl -y
-curl http://httpd-svc
+kubectl get ep  
 
-Task 3: Setup NodePort service
+ # Get External IPs of the machines in the cluster using below.
+
+kubectl get nodes -owide | awk '{print $7}'
+
+  #SSH to one of the machines and rerun the command in the previous task
+
+ssh -t ubuntu@<Node_IP> curl <Cluster_IP>:<Service_Port>
+
+
+------------------------------------------------------------------------------
+#Task 3  Setup NodePort Service
+------------------------------------------------------------------------------
+
+# Modify the service created in the previous task to type NodePort
 
 vi httpd-svc.yaml
-
-# Replace the content of httpd-svc.yaml with below content use ESc and :wq! to quit vi
 
 apiVersion: v1
 kind: Service
@@ -165,27 +137,41 @@ metadata:
   name: httpd-svc
 spec:
   selector:
-    app: myapp
+    env: prod
+    type: front-end
+    app: httpd-ws
   ports:
   - protocol: TCP
     port: 80
+    targetPort: 80
   type: NodePort
 
-# End of file
+
+ #  Apply the changes using below command
 
 kubectl apply -f httpd-svc.yaml
 
-kubectl get svc 
+
+ # View details of the modified service
+
 kubectl describe svc httpd-svc
-kubectl get nodes -owide | grep node | awk '{print $7}'
-curl http://<Your NODE_EXTERNAL_IP>:<Your NodePort>
 
+ # Validate connectivity using External IP on NodePort using below or via browser
 
-Task 4: Setup LoadBalancer service
+curl <EXTERNAL-IP>:NodePort
+
+ # Get External IPs of the machines in the cluster. SSH to one of the machines and rerun the command in the previous task
+
+kubectl get nodes -o wide | awk '{print $7}'
+
+ssh -t ubuntu@<Node_IP> curl <Cluster_IP>:<Service_Port>
+------------------------------------------------------------------------------------
+#Task 4  Setup LoadBalancer Service
+------------------------------------------------------------------------------------
+
+ # Modify the service created in the previous task to type LoadBalancer 
 
 vi httpd-svc.yaml
-
-# Replace the content of httpd-svc.yaml with below content use ESc and :wq! to quit vi
 
 apiVersion: v1
 kind: Service
@@ -193,352 +179,347 @@ metadata:
   name: httpd-svc
 spec:
   selector:
-    app: myapp
+    env: prod
+    type: front-end
+    app: httpd-ws
   ports:
   - protocol: TCP
     port: 80
+    targetPort: 80
   type: LoadBalancer
 
 
-# End of file
+ #  Apply the changes using below command
 
 kubectl apply -f httpd-svc.yaml
-kubectl describe svc httpd-svc
-curl http://<Your LoadBalancer_Ingress>:<Your Service_Port>
 
-Task 5: Delete and recreate httpd Pod
 
-kubectl get pod httpd-pod -o wide
-kubectl describe svc httpd-svc
-kubectl delete pod httpd-pod
-kubectl describe svc httpd-svc
-kubectl create -f httpd-pod.yaml
-kubectl get pod httpd-pod -o wide
+ # Verify that a new service of type LoadBalancer has been created
+
+kubectl get svc
+
 kubectl describe svc httpd-svc
 
-Task 5.1: Clean-up
+ 
+ # Access the LoadBalancer on the kops instance or via browser
+
+curl <LoadBalancer_DNS>
+
+
+
+-------------------------------------------------------------------------------
+#Task 5 Delete and recreate httpd Pod
+-------------------------------------------------------------------------------
+# Delete the existing httpd-pod using below
+
+kubectl delete -f httpd-pod.yaml
+
+# View the service details and notice that the Endpoints field is empty
+
+kubectl describe svc httpd-svc
+
+# Recreate the httpd Pod and view service details Verify that the endpoints is updated with new Pod IP
+
+kubectl apply -f httpd-pod.yaml
+
+kubectl describe svc httpd-svc
+
+
+
+--------------------------------------------------------------------------------
+#Task 6 Cleanup the resources using below command
+----------------------------------------------------------------------------------
 
 kubectl delete -f httpd-pod.yaml
 kubectl delete -f httpd-svc.yaml
 
-TaskL 6 Container resource limits:
+=============================================================
+Lab 3: Deployment
+=============================================================
 
-vi myres-pod.yaml
+----------------------------------------------------------------------
+Task 1: Write a Deployment yaml and Apply it
+----------------------------------------------------------------------
+#Create a dep-nginx.yaml using content given below
 
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    app: myapp
-  name: myres-pod
-spec:
-  containers:
-  - name: con1   ### first container
-    image: nginx:latest
-    ports:
-    - containerPort: 80
-    resources:
-       requests:
-         memory: "64Mi"
-         cpu: "100m"
-       limits:
-         memory: "128Mi"
-         cpu: "500m"
-  - name: con2
-    image: tomcat:latest
-    ports:
-    - containerPort: 8080
-    resources:
-       requests:
-         memory: "64Mi"
-         cpu: "100m"
-       limits:
-         memory: "128Mi"
-         cpu: "500m"
-
-kubectl create -f myres-pod.yaml
-kubectl get pods
-kubectl describe pod myres-pod
-
-
-Task: 7 ReplicationController 
-
-vi myrc.yaml
-
-apiVersion: v1
-kind: ReplicationController
-metadata:
-   name: myrc
-spec:
-   replicas: 3
-   selector:
-     app: myapp
-   template:
-     metadata:
-       labels:
-          app: myapp
-     spec:
-        containers:
-        - name: con1
-          image: nginx:latest
-          ports:
-          - containerPort: 80
-
-
-kubectl create -f myrc.yaml
-kubectl get rc
-kubectl get pods
-
-
-Task: 8 ReplicaSet
-
-vi myrs.yaml
-
-apiVersion: apps/v1
-kind: ReplicaSet
-metadata:
-   name: my-rplicaset
-spec:
-   replicas: 3
-   selector:
-     matchExpressions:
-      - key: app
-        operator: In
-        values: [myapp]
-      - key: env
-        operator: NotIn
-        values: [dev]
-   template:
-     metadata:
-       labels:
-          app: myapp
-     spec:
-        containers:
-        - name: con1
-          image: nginx:latest
-          ports:
-          - containerPort: 80
-
-
-
-kubectl create -f myrs.yaml
-kubectl get rs
-kubectl get pods
-
-kubectl scale rs my-rplicaset --replicas=5
-
-
-
-******************
-Lab 3: Deployment*
-******************
-Task 1: Write a Deployment YAML and Apply it
-
-wget https://hpe-content.s3.ap-south-1.amazonaws.com/dep-nginx.yaml
-kubectl apply -f dep-nginx.yaml
-kubectl get deployments
-kubectl get rs
-kubectl get pods
-
-kubectl exec -it <replace pod_name> -- /bin/bash
-nginx -v
-exit
-
-Task 2: Update the Deployment with a newer image
-
-kubectl set image deployment/nginx-dep nginx-ctr=nginx:1.11 --record
-kubectl describe deployments
-kubectl get pods
-
-kubectl exec -it <replace pod_name> -- /bin/bash
-nginx -v
-exit
-
-Task 3: Rollback of Deployment 
-
-kubectl rollout history deployment/nginx-dep
-kubectl rollout history deployment nginx-dep --revision 1   #describe history
-kubectl rollout undo deployment/nginx-dep --to-revision=1
-kubectl get pods
-
-kubectl exec -it <replace pod_name> -- /bin/bash
-nginx -v
-exit
-
-Task 4: Scaling of Deployments
-
-kubectl get deployments
-kubectl get pods
-
-kubectl scale deployment nginx-dep --replicas=8
-kubectl get deployments
-kubectl get pods
-
-kubectl scale deployment nginx-dep --replicas=2
-kubectl get deployments
-kubectl get pods
-
-
-Task 5: Deployment Auto Scaling HPA - Horizontal Pod Autoscaling
-
-kubectl autoscale deployment nginx-dep --min=3 --max=8 --cpu-percent=70
-kubectl get hpa
-
-Lab 4: DaemonSet in Kubernetes
-
-wget https://hpe-content.s3.ap-south-1.amazonaws.com/ds-pod.yaml
-
-kubectl apply -f ds-pod.yaml
-kubectl get ds fluent-ds
-kubectl get pods -o wide
-kubectl delete -f ds-pod.yaml
-
-
-
-************
-Lab 5:  Volumes 
-
-
-EmptyDir , hostPath , persistant volume
-
-Task: 1 Empty Dir Volume
-
-vi emp-vol-dep.yaml
+vi dep-nginx.yaml
 
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: emp-vol-dep
+  name: nginx-dep
+  labels:
+    app: nginx-dep
 spec:
-  replicas: 2
+  replicas: 3
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
-      app: emp-app
+      app: nginx-app
   template:
     metadata:
       labels:
-        app: emp-app
+        app: nginx-app
     spec:
       containers:
-      - name: con1
-        image: nginx:latest
+      - name: nginx-ctr
+        image: nginx:1.12.2
         ports:
         - containerPort: 80
-        volumeMounts:
-        - name: myvol
-          mountPath: /data
-      - name: con2
-        image: tomcat:latest
-        ports:
-        - containerPort: 8080
-        volumeMounts:
-        - name: myvol
-          mountPath: /data
-      volumes:
-      - name: myvol
-        emptyDir: {}
-
-# save file  Press ESc and :wq! to save and exit vi
-kubectl create -f emp-vol-dep.yaml
-kubectl get deployment
 
 
-kubectl exec -it <pod-name> -c con1 -- bash
-cd /data
-create a  file
-touch mango.txt
-exit
 
-now login to second container and check you mango file
+#Apply the Deployment yaml created in the previous step
 
-kubectl exec -it <pod-name> -c con1 -- bash
-cd /data
-ls
+kubectl apply -f dep-nginx.yaml
 
 
-Task: 2 hostPath volume
+#View the objects created by Kubernetes, Deployment and Replica Set 
 
-vi hostpath-vol.yaml
+kubectl get deployments
+kubectl get rs
 
-apiVersion: v1
-kind: Pod
+
+#Access one of the Pods and view nginx version
+
+kubectl get pods
+kubectl exec -it <pod_name> -- /bin/bash
+
+
+# nginx -v
+# exit
+
+
+-------------------------------------------------------------------------
+ Task 2: Update the Deployment with a Newer Image
+-------------------------------------------------------------------------
+
+#Update the nginx image in Pod using below
+
+kubectl set image deployment/nginx-dep nginx-ctr=nginx:1.11
+
+
+#Describe the deployment and see that the old pods are replaced with newer ones
+
+kubectl describe deployments
+
+
+#Access one of the Pods and view nginx version
+
+kubectl get pods
+kubectl exec -it <pod_name> -- /bin/bash
+
+# nginx -v
+# exit
+
+
+
+-----------------------------------------------------------------------------
+Task 3: Rollback of Deployment 
+-----------------------------------------------------------------------------
+
+#View the history of Deployments
+
+kubectl rollout history deployment/nginx-dep
+
+
+#Rollback the Deployment done in the previous task
+
+kubectl rollout undo deployment/nginx-dep --to-revision=1
+
+kubectl get rs
+
+
+#Access one of the Pods and view nginx version
+
+kubectl get pods
+kubectl exec -it <pod_name> -- /bin/bash
+
+# nginx -v
+# exit
+
+
+
+------------------------------------------------------------------------------
+Task 4: Scaling of Deployments
+------------------------------------------------------------------------------
+
+#View the number of Pod replicas created by the Deployment
+
+kubectl get deployments
+kubectl get pods
+
+
+#Scale up the deployment to have 8 Pod replicas
+
+kubectl scale deployment nginx-dep --replicas=8
+
+
+
+#Check the Pods and deployment to and verify that the number of Pod replicas are 8
+
+kubectl get deployments
+kubectl get pods
+
+
+#Scale down the deployments to 2 Pod replicas
+
+kubectl scale deployment nginx-dep --replicas=2
+
+
+#Check the Pods and deployment to and verify that the number of Pod replicas are down to 2
+
+kubectl get deployments
+kubectl get pods
+
+
+
+-----------------------------------------------------------------------------
+Task 5: Deployment Auto Scaling HPA – Horizontal Pod 
+Autoscaling
+-----------------------------------------------------------------------------
+kubectl autoscale deployment nginx-dep --min=3 --max=8 --cpu-percent=70
+
+kubectl get hpa
+
+-----------------------------------------------------------------------------
+#Task 6 Cleanup the resources using below command
+-----------------------------------------------------------------------------
+kubectl delete -f dep-nginx.yaml
+
+=============================================================
+Lab 4: DaemonSet in Kubernetes
+=============================================================
+
+#Create a DaemonSet using below yaml
+
+vi ds-pod.yaml
+----------------------------------------------
+apiVersion: apps/v1
+kind: DaemonSet
 metadata:
-  name: hostvol-pod
+  name: redis-ds
+  labels:
+    app: redis-ds
 spec:
-  containers:
-  - name: ng
-    image: nginx:latest
-    ports:
-    - containerPort: 80
-    volumeMounts:
-    - name: empvol
-      mountPath: /data
-  - name: tom
-    image: tomcat:latest
-    ports:
-    - containerPort: 8080
-    volumeMounts:
-    - name: empvol
-      mountPath: /data
-  volumes:
-  - name: empvol
-    hostPath:
-      path: /data 
+  selector:
+    matchLabels:
+      app: redis-app
+  template:
+    metadata:
+       labels:
+           app: redis-app
+    spec:
+      containers:
+      - name: redis-ctr
+        image: redis
 
-kubectl apply -f hostpath-vol.yaml
+-----------------------------------------------
 
-Task 2.1 Login to 1st  container and create following files
-kubectl exec -it hostvol-pod -c ng -- bash
+#Apply the yaml definition to create a fluent-ds DaemonSet
 
-cd /data/
-touch file1.txt file2.txt file3.txt
-ls
-file1.txt  file2.txt  file3.txt
-exit
+kubectl apply -f ds-pod.yaml
 
-Now loginto second container and verify data is accessible here also in second container.
+#Check the available daemonsets in kubernetes cluster
 
-kubectl exec -it hostvol-pod -c tom -- bash
-cd /data/
-ls
-file1.txt  file2.txt  file3.txt
-exit
+kubectl get ds redis-ds
 
 
-Task 2.2: login into worker node where pod is deployed and check data directory created by hostPath
+#Verify that pods for fluent are created one for each node using DaemonSet
 
-Ssh into worker node
-Ssh ubuntu@<nodes public IP here>
-Goto to path created by hostpath (/data/) and your data is here even after pod deletion.
-cd /data/
-/data$ ls
-file1.txt  file2.txt  file3.txt
-exit
+kubectl get pods -o wide
+
+#Cleanup the DaemeonSet using below 
+
+kubectl delete -f ds-pod.yaml
+
+#Verify the pods to find (all) the fluentd pods being deleted from each of the nodes
+
+kubectl get pods
 
 
-: Persistent Volume in Kubernetes using storage-class
-Task 3: create pvc persistant volume claim
+=============================================================
+Lab 5: Persistent Volume in Kubernetes
+=============================================================
 
-vi pvc.yaml
+----------------------------------------------------------------------------
+# Task 1  Get Node Label and Create Custom Index.html on Node
+----------------------------------------------------------------------------
+
+# View worker nodes and their labels
+
+kubectl get nodes --show-labels | grep role=node
+
+
+# make a note of the kubernetes.io/hostname label of one of the nodes
+
+
+# ssh to one of the nodes using below
+
+ ssh -t ubuntu@<node_public_IP> 
+
+
+
+# Switch to root and run the following commands. A directory with custom index.html is created for PersistentVolume mount 
+
+sudo su
+mkdir /pvdir
+echo Hello World! > /pvdir/index.html
+
+
+--------------------------------------------------------------------------------
+# Task 2 - Create a Local Persistent Volume
+--------------------------------------------------------------------------------
+
+vi pv-volume.yaml
+
+
+kind: PersistentVolume
 apiVersion: v1
+metadata:
+  name: pv-volume
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteMany
+  hostPath:
+    path: "/pvdir"
+
+
+
+kubectl apply -f pv-volume.yaml
+
+kubectl get pv
+
+kubectl describe pv pv-volume
+
+------------------------------------------------------------------------------------
+# Task 3  - Create a PV Claim
+------------------------------------------------------------------------------------
+vi pv-claim.yaml
+
+
 kind: PersistentVolumeClaim
+apiVersion: v1
 metadata:
   name: pv-claim
 spec:
+  storageClassName: manual
   accessModes:
-    - ReadWriteOnce
-  volumeMode: Filesystem
+  - ReadWriteMany
   resources:
     requests:
-      storage: 2Gi
+      storage: 1Gi
 
-# save file  Press ESc and :wq! to save and exit vi
-kubectl create -f pvc.yaml
-kubectl get pvc
+kubectl apply -f pv-claim.yaml
+----------------------------------------------------------------------------------------
+# Task 4  - Create nginx Pod with NodeSelector
+----------------------------------------------------------------------------------------
+vi pv-pod.yaml
 
-Task 2: Create nginx Pod with persistent volume claim 
-
-vi pvc-pod.yaml
 
 kind: Pod
 apiVersion: v1
@@ -548,34 +529,687 @@ spec:
   volumes:
     - name: pv-storage
       persistentVolumeClaim:
-       claimName: pv-claim
+        claimName: pv-claim
   containers:
-    - name: pv-container
-      image: nginx
-      ports:
-        - containerPort: 80
-          name: "http-server"
-      volumeMounts:
-        - mountPath: "/usr/share/nginx/html"
-          name: pv-storage
+     - name: pv-container
+       image: nginx
+       ports:
+          - containerPort: 80
+            name: "http-server"
+       volumeMounts:
+          - mountPath: "/usr/share/nginx/html"
+            name: pv-storage
+  nodeSelector:
+    kubernetes.io/hostname: ip-172-20-33-138.ap-south-1.compute.internal
+
+# Apply the Pod yaml created in the previous step
+
+kubectl apply -f pv-pod.yaml
+
+# View Pod details and see that is created on the required node
+
+kubectl get pods -o wide
+
+# Access shell on a container running in your Pod
+
+kubectl exec -it pv-pod -- /bin/bash
+
+# Run the following commands in the container to verify PersistentVolume
+
+ apt-get update
+ apt-get install curl -y
+ curl localhost
+ exit
+
+# delete the resources created in this lab.
+kubectl delete -f pv-pod.yaml
+kubectl delete -f pv-claim.yaml
+kubectl delete -f pv-volume.yaml
+=============================================================
+Lab 6: StatefulSet Implementation
+=============================================================
+
+----------------------------------------------------------------------
+#Task1 - Create Stateful Set
+----------------------------------------------------------------------
+
+#Download file with yaml defintion for an nginx Stateful Set 
+
+wget https://s3.ap-south-1.amazonaws.com/files.cloudthat.training/devops/kubernetes-essentials/nginx-sts.yaml
+
+
+#Create a Stateful Set by applying the yaml
+
+kubectl apply -f nginx-sts.yaml
+
+
+#Create a headless service
+
+kubectl get service nginx-svc
+
+
+#Validate the stateful set creation
+
+kubectl get statefulset nginx-sts
+
+
+#Watch the pods getting created in an ordinal index fashion
+
+kubectl get pods -w -l app=nginx-sts
+
+
+#Go to each of the pods to see the hostname, as a DNS entry is created for each Pod, the hostname inside the Pod should match the pod-name
+
+for i in 0 1; do kubectl exec "nginx-sts-$i" -- sh -c 'hostname'; done
+
+
+#Create a busybox pod to test the ping to one of the Ngninx pods by using DNS name of the pod
+
+
+kubectl run -i --tty --image busybox:1.28 dns-test --restart=Never --rm
+
+
+# nslookup nginx-sts-0.nginx-svc
+# nslookup nginx-sts-1.nginx-svc
+# exit
+
+
+#Delete the pods for stateful set 
+kubectl delete pod -l app=nginx-sts
+
+
+#In another window notice the new pods getting created in a proper order
+kubectl get pod -w -l app=nginx-sts
+
+
+#Verify the hostname in each of the newly created pods, it will match the pod name
+
+for i in 0 1; do kubectl exec "nginx-sts-$i" -- sh -c 'hostname'; done
 
 
 
-# Press ESc and :wq! to save and exit vi
+----------------------------------------------------------------------------
+# Task 3 - Scaling a Stateful Set
+----------------------------------------------------------------------------
 
-kubectl apply -f pvc-pod.yaml
+# Scale the Stateful Set to 5 replicas using below.
+
+kubectl scale sts nginx-sts --replicas=5
+
+
+# Verify the pods getting created in ordinal way
+
+kubectl get pods -w -l app=nginx-sts
+
+# Verify the PV Claim getting created in ordinal fashion
+kubectl get pvc -l app=nginx-sts
+
+# Edit the stateful Set yam and reduce replicas to 3 
+kubectl edit sts nginx-sts
+
+# Notice that the controller deletes the pods one at a time. It waits for one to completely shut down before going to next
+
+kubectl get pods -w -l app=nginx-sts
+
+
+# Verify statefulSet’s PersistentVolumeClaims and verify that are not deleted on scaling down. 
+
+kubectl get pvc -l app=nginx-sts
+
+
+-------------------------------------------------------------------------------
+# Task 4 - Delete a Stateful Set - Cleanup
+--------------------------------------------------------------------------------
+
+kubectl delete -f nginx-sts.yaml
+
+# List all the PV and PVC’s that has been allocated to Statefulset pods and delete them as below.
+
 kubectl get pvc
-kubectl exec -it pv-container -- bash
-cd /usr/share/nginx/html
-create a  file 
-touch mango.txt
-exit
 
-delete pod 
-kubectl delete -f pvc-pod.yaml
-re-create pod again
-kubectl create -f pvc-pod.yaml
-check your mango.txt file is already there
-kubectl exec -it pv-container -- bash
-cd /mnt
+kubectl delete pvc --all
+
+=============================================================
+Lab 7: Node Labelling and Constraining pods in 
+Kubernetes
+=============================================================
+--------------------------------------------------
+Task 1: Node labeling and constraining pods
+--------------------------------------------------
+
+#View the default labels for all the nodes. Make a note of the NAME of one of the nodes. This node will be used to schedule a pod
+
+$ kubectl get nodes --show-labels
+
+
+#Add a label to the node
+
+$ kubectl label nodes <node_name> disktype=ssd
+
+ 
+#View the labels again to verify labeling from the previous 
+
+$ kubectl get nodes --show-labels
+ 
+
+#Create a pod and use nodeSelector to constrain it to a particular node
+
+$ vi nlns-pod.yaml
+ 
+----------------------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nlns-nginx-pod
+  labels:
+    env: test
+spec:
+  containers:
+  - name: nlns-nginx-ctr
+    image: nginx
+  nodeSelector:
+    disktype: ssd
+
+
+ ----------------------------------------------------
+
+#Create the pod using the yaml created in the previous step
+
+$ kubectl apply -f nlns-pod.yaml
+ 
+
+#Verify that the pod is scheduled on the desired node
+
+$ kubectl get pods -o wide
+ 
+
+
+--------------------------------------------------
+--------------------------------------------------
+Task 2: Cleanup
+--------------------------------------------------
+--------------------------------------------------
+#Delete the objects created in this lab
+
+$ kubectl delete -f nlns-pod.yaml 
+$ kubectl label nodes <node_name> disktype-   
+
+#-(minus):for removing label
+ 
+
+#Verify that the label is deleted.
+
+$ kubectl get nodes --show-labels | grep ssd 
+ 
+=================================================================================
+Lab 8: Advanced Pod Scheduling
+=================================================================================
+
+Task 1: Node Anti Affinity
+--------------------------------------------------
+--------------------------------------------------
+#Create a nginx yaml of preferredDuringScheduling nodeAffinity using content given below
+
+$ vi aff-na-pod1.yaml
+
+---------------------------------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  name: na-nginx-pod1
+spec:
+  containers:
+  - name: na-nginx-ctr1
+    image: nginx
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1
+        preference:
+          matchExpressions:
+          - key: disktype
+            operator: NotIn  #In-NodeAffinity  #NotIn-NodeAntiAffinity
+            values:
+            - ssd
+
+
+# save the file using "ESCAPE + :wq!"
+-------------------------------------------------------------
+
+ 
+
+#Create a pod using the yaml created in the previous step
+
+$ kubectl apply -f aff-na-pod1.yaml
+
+ 
+
+#View pods and notice that it has been created despite none of the nodes having the specified label
+
+$ kubectl get pods -o wide
+
+ 
+ 
+#Delete the pod na-nginx-pod1
+
+$ kubectl delete -f aff-na-pod1.yaml
+
+ 
+
+#Create another pod with nodeAffinity type of requiredDuringScheduling using content given below
+
+$ vi aff-na-pod2.yaml
+
+-------------------------------------------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  name: na-nginx-pod2
+spec:
+  containers:
+  - name: na-nginx-ctr2
+    image: nginx
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: disktype
+            operator: In
+            values:
+            - ssd
+# save the file using "ESCAPE + :wq!"
+-------------------------------------------------------------
+ 
+#Create a pod using the yaml created in the previous step
+
+$ kubectl create -f aff-na-pod2.yaml
+
+ 
+#View pods and see that it is not scheduled as any of the nodes have the specified label
+
+$ kubectl get pods -o wide
+
+ 
+#View all the nodes in the cluster and make a note of the name of one of the nodes
+
+$ kubectl get nodes
+
+ 
+
+#Using the node name from the previous step, add a label to one of the nodes
+
+$ kubectl label nodes <node_name> disktype=ssd
+
+ 
+
+#Apply the yaml again as it is stuck in a pending state
+
+$ kubectl apply -f aff-na-pod2.yaml
+
+
+ 
+
+#View the pods again and see that it is now scheduled
+
+$ kubectl get pods -o wide
+
+
+ 
+
+#Delete the pod
+
+$ kubectl delete -f aff-na-pod2.yaml
+
+--------------------------------------------------
+--------------------------------------------------  
+Task 2: Pod Affinity
+--------------------------------------------------
+--------------------------------------------------
+
+#Create a yaml file with the content given below. Note that the label used is app: nginx
+
+$ vi aff-pa-pod1.yaml
+
+----------------------------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pa-nginx-pod1
+  labels:
+    app: pa-nginx-app
+spec:
+  containers:
+  - name: pa-nginx-ctr1
+    image: nginx
+
+
+# save the file using "ESCAPE + :wq!"
+-------------------------------------------------------------
+ 
+#Create a pod using the yaml created in the previous step. 
+#View the node on which it was scheduled
+
+$ kubectl apply -f aff-pa-pod1.yaml
+$ kubectl get pods -o wide
+
+ 
+
+#Create a new pod yaml using the content given below
+
+$ vi aff-pa-pod2.yaml
+
+-----------------------------------------------------------------		
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pa-nginx-pod2
+spec:
+  containers: 
+  - name: pa-nginx-ctr2
+    image: nginx
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - pa-nginx-app
+        topologyKey: kubernetes.io/hostname
+
+ 
+# save the file using "ESCAPE + :wq!"
+-------------------------------------------------------------
+
+ 
+#Apply the yaml created in the previous step
+
+$ kubectl apply -f aff-pa-pod2.yaml
+
+ 
+#View on which node the pod is scheduled. Notice that the pod is scheduled on the same node as the pod created previously
+
+$ kubectl get pods -o wide
+
+ 
+--------------------------------------------------
+-------------------------------------------------- 
+Task 3: Clean-up
+--------------------------------------------------
+--------------------------------------------------
+#Delete the pods created in the previous task.
+
+$ kubectl delete -f aff-pa-pod1.yaml
+$ kubectl delete -f aff-pa-pod2.yaml
+
+
+==================================================================
+Lab 9: Resource Quotas in Kubernetes
+==================================================================
+Task 1: Creating a Namespace
+----------------------------------------------------------------
+----------------------------------------------------------------
+#Create a namespace
+
+$ kubectl create namespace quotas
+
+ 
+#Verify namespace creation
+
+$ kubectl get ns
+
+
+---------------------------------------------------------------- 
+Task 2: Creating a resourcequota
+----------------------------------------------------------------
+
+#Create a file quota.yaml
+
+$ vi rq-quotas.yaml
+
+--------------------------------------------------
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: quota
+  namespace: quotas
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 1Gi
+    limits.cpu: "2"
+    limits.memory: 2Gi
+
+
+# save the file using "ESCAPE + :wq!"
+----------------------------------------------------
+ 
+#Create the resourcequota from the yaml
+
+$ kubectl create -f rq-quotas.yaml
+
+ 
+#Verify resourcequota creation
+
+$ kubectl get resourcequota -n quotas
+
+
+----------------------------------------------------------------
+Task 3: Verify resourcequota Functionality
+----------------------------------------------------------------
+
+#Create a pod yaml called quota-pod.yaml 
+
+$ vi rq-pod.yaml
+
+-----------------------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  name: quota-pod
+  namespace: quotas
+spec:
+  containers:
+  - name: quota-ctr
+    image: nginx
+    resources:
+      limits:
+        memory: "800Mi"
+        cpu: "1000m"
+      requests:
+        memory: "600Mi"
+        cpu: "350m"
+    ports:
+      - containerPort: 80
+
+# save the file using "ESCAPE + :wq!"
+----------------------------------------------------
+ 
+
+#Create the pod using the yaml created in the previous step
+
+$ kubectl create -f rq-pod.yaml
+
+ 
+#Once the pod is created, view the resources used by the pod
+
+$ kubectl get resourcequota -n quotas -o yaml
+
+
+#Create the same pod again and see that it does not get created due to the set resourcequotas. Two pods together will request 1.2Gi of memory while quota is set at 1Gi
+
+$ kubectl create -f rq-pod.yaml
+
+ 
+
+----------------------------------------------------------------
+Task 4: Limiting Number of Pods
+----------------------------------------------------------------
+
+#Edit the existing resourcequota and include a limit for the number of pods
+
+$ kubectl edit resourcequotas quota -n quotas
+
+#Append pods: “1” to the limits in the file 
+#If the editing is successful, you will get "resourcequota/quota edited" output
+
+#Modify the pod memory limit to ensure that pod creation is not affected by the memory limit
+
+
+$ vi rq-pod.yaml
+-----------------------------------------------------
+apiVersion: v1
+kind: Pod
+metadata:
+  name: quota-pod
+  namespace: quotas
+spec:
+  containers:
+  - name: quota-ctr
+    image: nginx
+    resources:
+      limits:
+        memory: "800Mi"
+        cpu: "1000m"
+      requests:
+        memory: "375Mi"            #ensure the memory size
+        cpu: "350m"
+    ports:
+      - containerPort: 80
+
+# save the file using "ESCAPE + :wq!"
+----------------------------------------------------
+ 
+
+#Now, try to create a pod and note that 
+#it will not be created due to the restriction on the number of pods
+
+$ kubectl create -f rq-pod.yaml
+
+
+ 
+---------------------------------------------------------------- 
+Task 5: Clean-up
+----------------------------------------------------------------
+#Delete the quota to clean up.
+
+$ kubectl delete ns quotas
+
+
+
+===================================================================================
+Lab 10: Installing WordPress with Helm
+
+-----------------------------------------------------------------------
+Task 1: Helm setup
+-----------------------------------------------------------------------
+#Download the shell script for the installation of the Helm package manager and run it.
+wget  https://s3.ap-south-1.amazonaws.com/files.cloudthat.training/devops/kubernetes-essentials/helm.sh
+bash helm.sh
+helm version
+
+
+
+-----------------------------------------------------------------------
+Task 2: Setup WordPress
+-----------------------------------------------------------------------
+#Add bitnami repository to helm which contains WordPress chart.
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+helm repo list
+ 
+#Search for WordPress package from the repository and install the WordPress chart with release name wordpress-chart. You can name it as you want.
+helm search repo wordpress
+helm install wordpress-chart bitnami/wordpress
+
+
+#Perform helm fetch to get the WordPress compressed file to the working directory. Perform ls and verify that a compressed WordPress file is present in PWD.
+helm fetch bitnami/wordpress
 ls
+ 
+#Extract the compressed file using the below command.
+tar -xvzf wordpress-12.2.1.tgz
+
+
+#Now, deploy the WordPress using helm install command.  This will set up the pods and services for WordPress.
+helm install wordpress --generate-name
+
+ 
+-----------------------------------------------------------------------
+Task 3: Verify that WordPress has been set up 
+-----------------------------------------------------------------------
+
+#Verify that the pods are running.
+kubectl get pods
+ 
+ 
+
+#Now Notice that MariaDB (database) pods are part of statefulset.
+kubectl get sts
+kubectl describe sts
+ 
+ 
+
+#Also Notice that the front end of wordpress are part of deployment.
+kubectl get deploy
+
+#View the services using the below commands.
+#Make note of the EXTERNAL IP of the LoadBalancer service.
+kubectl get svc
+kubectl get svc --namespace default -w wordpress-1637763307
+ 
+
+#Open the browser and paste the service endpoint noted on the previous step. Observe that the WordPress site is up and running.
+
+ 
+-----------------------------------------------------------------------
+Task 4: Cleanup
+-----------------------------------------------------------------------
+
+#List the current helm release and delete it
+helm ls
+helm delete <helm_Release_Name >
+helm ls
+
+ 
+ 
+
+==================================================================
+
+**** Helm Chart ****
+
+Installing Helm 3 in Ubuntu Linux and installing wordpress (LAMP) application through Helm.
+
+apt update
+wget https://get.helm.sh/helm-v3.11.3-linux-386.tar.gz
+ls
+tar -xvzf helm-v3.11.3-linux-386.tar.gz 
+ls
+cd linux-386/
+ls
+mv helm /bin/
+helm list
+helm repo list
+helm repo add my-repo https://charts.bitnami.com/bitnami
+helm repo list
+helm install my-word my-repo/wordpress
+helm list
+kubectl get all
+kubectl get pv,pvc
+kubectl get sts
+kubectl get deploy
+kubectl get secrets
+kubectl get svc
+kubectl edit svc my-word-wordpress
+helm list
+helm status my-word
+ 
+ 
+***************************************************************
+
+
+*****************Delete Cluster*********************************
+kops get cluster
+kops delete cluster --name <cluster-naame> --state s3://<cluster-naame> --yes
